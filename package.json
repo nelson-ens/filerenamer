@@ -1,0 +1,59 @@
+{
+  "name": "filerenamer",
+  "version": "1.0.0",
+  "description": "Media file renamer based on capture date",
+  "main": "dist/index.js",
+  "bin": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "ts-node src/index.ts",
+    "test": "jest --no-cache",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "prepare": "pnpm run build",
+    "package": "pnpm build && pkg . --target node18-macos-x64 --output bin/filerenamer"
+  },
+  "pkg": {
+    "scripts": "dist/**/*.js",
+    "assets": [
+      "node_modules/exiftool-vendored/**/*"
+    ],
+    "targets": [
+      "node18-macos-x64"
+    ],
+    "outputPath": "bin"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dayjs": "^1.11.10",
+    "exiftool-vendored": "^29.3.0",
+    "typescript": "^5.3.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.15.3",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-import": "^2.29.1",
+    "eslint-plugin-prettier": "^5.2.6",
+    "globals": "^14.0.0",
+    "jest": "^29.7.0",
+    "pkg": "^5.8.1",
+    "prettier": "^3.5.3",
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+} 

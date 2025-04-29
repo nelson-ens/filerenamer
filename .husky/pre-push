@@ -1,0 +1,2 @@
+echo "Running tests and build before pushing..."
+pnpm test && pnpm build
