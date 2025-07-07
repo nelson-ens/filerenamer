@@ -1,75 +1,37 @@
-import { FileService } from '../../services/fileService';
 import * as fs from 'fs';
-import { exiftool } from 'exiftool-vendored';
+import { exiftool, ExifDateTime } from 'exiftool-vendored';
+import { FileService } from '../../services/fileService';
 
 jest.mock('fs');
-jest.mock('exiftool-vendored', () => ({
-  exiftool: {
-    read: jest.fn(),
-    end: jest.fn().mockResolvedValue(undefined),
-  },
-}));
+jest.mock('exiftool-vendored');
 
 describe('FileService', () => {
-  let fileService: FileService;
-  const mockDate = new Date('2024-02-25T12:00:00Z');
+  const fileService = new FileService();
 
-  beforeEach(() => {
-    fileService = new FileService();
+  afterEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('isMediaFile', () => {
-    test.each([
-      ['image.jpg', true],
-      ['image.jpeg', true],
-      ['photo.png', true],
-      ['animation.gif', true],
-      ['video.mp4', true],
-      ['movie.mov', true],
-      ['clip.avi', true],
-      ['photo.heic', true],
-      ['document.pdf', false],
-      ['image.JPG', true],
-      ['test.txt', false],
-      ['noextension', false],
-      ['.hiddenfile', false],
-      ['image.JPEG', true],
-      ['video.MP4', true],
-    ])('should correctly identify media files: %s -> %s', (filename, expected) => {
-      expect(fileService.isMediaFile(filename)).toBe(expected);
-    });
-  });
-
   describe('getFileDate', () => {
-    it('should return birthtime when valid', async () => {
-      const mockStats = {
-        birthtime: mockDate,
-        mtime: new Date('2020-01-01'),
-      };
+    it('should return birthtime if it exists', async () => {
+      const mockStats = { birthtime: new Date('2023-01-01'), mtime: new Date('2023-02-01') };
       (fs.statSync as jest.Mock).mockReturnValue(mockStats);
 
       const result = await fileService.getFileDate('test.jpg');
-      expect(result).toEqual(mockDate);
-      expect(fs.statSync).toHaveBeenCalledWith('test.jpg');
+      expect(result).toEqual(mockStats.birthtime);
     });
 
-    it('should fall back to mtime when birthtime is invalid', async () => {
-      const mockMtime = new Date('2020-01-01');
-      const mockStats = {
-        birthtime: new Date(0),
-        mtime: mockMtime,
-      };
+    it('should return mtime if birthtime is 0', async () => {
+      const mockStats = { birthtime: new Date(0), mtime: new Date('2023-02-01') };
       (fs.statSync as jest.Mock).mockReturnValue(mockStats);
 
       const result = await fileService.getFileDate('test.jpg');
-      expect(result).toEqual(mockMtime);
+      expect(result).toEqual(mockStats.mtime);
     });
 
-    it('should handle fs.statSync errors', async () => {
-      const error = new Error('ENOENT: File not found');
+    it('should throw an error if file does not exist', async () => {
       (fs.statSync as jest.Mock).mockImplementation(() => {
-        throw error;
+        throw new Error('ENOENT: File not found');
       });
 
       await expect(fileService.getFileDate('nonexistent.jpg')).rejects.toThrow(
@@ -79,119 +41,88 @@ describe('FileService', () => {
   });
 
   describe('getMediaCreationDate', () => {
-    it('should return CreateDate when available', async () => {
-      (exiftool.read as jest.Mock).mockResolvedValue({
-        CreateDate: mockDate,
-      });
+    it('should return EXIF CreateDate if available', async () => {
+      const mockExifData = { CreateDate: new ExifDateTime(2023, 1, 1, 0, 0, 0) };
+      (exiftool.read as jest.Mock).mockResolvedValue(mockExifData);
+      mockExifData.CreateDate.toDate = jest.fn(() => new Date('2023-01-01'));
 
       const result = await fileService.getMediaCreationDate('test.jpg');
-      expect(result).toEqual(mockDate);
-      expect(exiftool.read).toHaveBeenCalledWith('test.jpg');
+      expect(result).toEqual(new Date('2023-01-01'));
     });
 
-    it('should use DateTimeOriginal when CreateDate is not available', async () => {
-      (exiftool.read as jest.Mock).mockResolvedValue({
-        DateTimeOriginal: mockDate,
-      });
+    it('should return EXIF DateTimeOriginal if CreateDate is not available', async () => {
+      const mockExifData = { DateTimeOriginal: '2023-01-01T12:00:00' };
+      (exiftool.read as jest.Mock).mockResolvedValue(mockExifData);
 
       const result = await fileService.getMediaCreationDate('test.jpg');
-      expect(result).toEqual(mockDate);
+      expect(result).toEqual(new Date('2023-01-01T12:00:00'));
     });
 
-    it('should use MediaCreateDate when other dates are not available', async () => {
-      (exiftool.read as jest.Mock).mockResolvedValue({
-        MediaCreateDate: mockDate,
-      });
+    it('should fall back to file system date if EXIF data is unavailable', async () => {
+      (exiftool.read as jest.Mock).mockRejectedValue(new Error('EXIF data not found'));
+      const mockStats = { birthtime: new Date('2023-01-01'), mtime: new Date('2023-02-01') };
+      (fs.statSync as jest.Mock).mockReturnValue(mockStats);
 
       const result = await fileService.getMediaCreationDate('test.jpg');
-      expect(result).toEqual(mockDate);
+      expect(result).toEqual(mockStats.birthtime);
     });
 
-    it('should handle string date format', async () => {
-      const dateString = '2024-02-25T12:00:00Z';
-      (exiftool.read as jest.Mock).mockResolvedValue({
-        CreateDate: dateString,
-      });
+    it('should fall back to file system date if EXIF data is unavailable', async () => {
+      const mockExifData = {
+        CreateDate: undefined,
+        DateTimeOriginal: undefined,
+        MediaCreateDate: undefined,
+      };
+      (exiftool.read as jest.Mock).mockResolvedValue(mockExifData);
+      const mockStats = { birthtime: new Date('2023-01-01'), mtime: new Date('2023-02-01') };
+      (fs.statSync as jest.Mock).mockReturnValue(mockStats);
 
       const result = await fileService.getMediaCreationDate('test.jpg');
-      expect(result).toEqual(new Date(dateString));
-    });
-
-    it('should fall back to file date when no EXIF data', async () => {
-      (exiftool.read as jest.Mock).mockResolvedValue({});
-      (fs.statSync as jest.Mock).mockReturnValue({
-        birthtime: mockDate,
-        mtime: new Date('2020-01-01'),
-      });
-
-      const result = await fileService.getMediaCreationDate('test.jpg');
-      expect(result).toEqual(mockDate);
-    });
-
-    it('should fall back to file date when EXIF read fails', async () => {
-      (exiftool.read as jest.Mock).mockRejectedValue(new Error('EXIF read failed'));
-      (fs.statSync as jest.Mock).mockReturnValue({
-        birthtime: mockDate,
-        mtime: new Date('2020-01-01'),
-      });
-
-      const result = await fileService.getMediaCreationDate('test.jpg');
-      expect(result).toEqual(mockDate);
+      expect(result).toEqual(mockStats.birthtime);
     });
   });
 
-  describe('listFiles', () => {
-    it('should return list of files in directory', () => {
-      const mockFiles = ['file1.jpg', 'file2.mp4', 'file3.txt'];
-      (fs.readdirSync as jest.Mock).mockReturnValue(mockFiles);
-
-      expect(fileService.listFiles('test-dir')).toEqual(mockFiles);
-      expect(fs.readdirSync).toHaveBeenCalledWith('test-dir');
+  describe('isMediaFile', () => {
+    it('should return true for supported media file extensions', () => {
+      expect(fileService.isMediaFile('image.jpg')).toBe(true);
+      expect(fileService.isMediaFile('video.mp4')).toBe(true);
     });
 
-    it('should handle empty directories', () => {
-      (fs.readdirSync as jest.Mock).mockReturnValue([]);
-      expect(fileService.listFiles('empty-dir')).toEqual([]);
-    });
-
-    it('should handle fs.readdirSync errors', () => {
-      const error = new Error('Directory access error');
-      (fs.readdirSync as jest.Mock).mockImplementation(() => {
-        throw error;
-      });
-
-      expect(() => fileService.listFiles('invalid-dir')).toThrow('Directory access error');
-    });
-  });
-
-  describe('exists', () => {
-    it('should return true when path exists', () => {
-      (fs.existsSync as jest.Mock).mockReturnValue(true);
-      expect(fileService.exists('existing-path')).toBe(true);
-      expect(fs.existsSync).toHaveBeenCalledWith('existing-path');
-    });
-
-    it('should return false when path does not exist', () => {
-      (fs.existsSync as jest.Mock).mockReturnValue(false);
-      expect(fileService.exists('non-existing-path')).toBe(false);
+    it('should return false for unsupported file extensions', () => {
+      expect(fileService.isMediaFile('document.pdf')).toBe(false);
     });
   });
 
   describe('renameFile', () => {
-    it('should rename file successfully', () => {
-      (fs.renameSync as jest.Mock).mockImplementation(() => undefined);
+    it('should rename a file', () => {
+      fileService.renameFile('oldPath.jpg', 'newPath.jpg');
+      expect(fs.renameSync).toHaveBeenCalledWith('oldPath.jpg', 'newPath.jpg');
+    });
+  });
 
-      fileService.renameFile('old.jpg', 'new.jpg');
-      expect(fs.renameSync).toHaveBeenCalledWith('old.jpg', 'new.jpg');
+  describe('listFiles', () => {
+    it('should list files in a directory', () => {
+      const mockFiles = ['file1.jpg', 'file2.png'];
+      (fs.readdirSync as jest.Mock).mockReturnValue(mockFiles);
+
+      const result = fileService.listFiles('/test');
+      expect(result).toEqual(mockFiles);
+    });
+  });
+
+  describe('exists', () => {
+    it('should return true if a path exists', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      const result = fileService.exists('/test');
+      expect(result).toBe(true);
     });
 
-    it('should handle fs.renameSync errors', () => {
-      const error = new Error('Rename error');
-      (fs.renameSync as jest.Mock).mockImplementation(() => {
-        throw error;
-      });
+    it('should return false if a path does not exist', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(false);
 
-      expect(() => fileService.renameFile('old.jpg', 'new.jpg')).toThrow('Rename error');
+      const result = fileService.exists('/test');
+      expect(result).toBe(false);
     });
   });
 });

@@ -11,10 +11,12 @@ export class FileService {
   async getMediaCreationDate(filePath: string): Promise<Date> {
     try {
       const metadata = await exiftool.read(filePath);
-
       // Try different metadata fields for creation date
       const dateCreated =
-        metadata.CreateDate || metadata.DateTimeOriginal || metadata.MediaCreateDate;
+        metadata.CreationDate ||
+        metadata.CreateDate ||
+        metadata.DateTimeOriginal ||
+        metadata.MediaCreateDate;
 
       if (dateCreated) {
         // Handle ExifDateTime type properly
@@ -47,7 +49,7 @@ export class FileService {
       '.cr2',
       '.cr3',
       '.nef',
-      '.raf'
+      '.raf',
     ]);
     return mediaExtensions.has(path.extname(filename).toLowerCase());
   }

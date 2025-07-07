@@ -44,6 +44,12 @@ export async function renameMediaFiles({
         continue;
       }
 
+      // if already starts with timestamp, skip
+      if (originalFileName.match(/^\d{8}\.\d{6}/)) {
+        console.log(`Skipping file with timestamp: ${file}`);
+        continue;
+      }
+
       const creationDate = await fileService.getMediaCreationDate(filePath);
       const dateString = dayjs(creationDate).format('YYYYMMDD.HHmmss');
       const newFileName = `${dateString}-${suffix}-${originalFileName}${extension}`;
@@ -93,7 +99,7 @@ export async function renameMediaFiles({
   }
 }
 
-function showHelp(): void {
+export function showHelp(): void {
   console.log('\nFile Renamer - Rename media files with their capture date');
   console.log('\nUsage:');
   console.log('  filerenamer <input_folder> <suffix> [--execute]');
@@ -106,12 +112,12 @@ function showHelp(): void {
   console.log('  filerenamer "./photos" "vacation" --execute # Actually rename files');
 }
 
-function showVersion(): void {
+export function showVersion(): void {
   const version = require('../package.json').version;
   console.log(`File Renamer v${version}`);
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
   if (args.includes('--help') || args.includes('-h')) {
