@@ -58,8 +58,30 @@ export class FileService {
     fs.renameSync(oldPath, newPath);
   }
 
-  listFiles(dirPath: string): string[] {
-    return fs.readdirSync(dirPath);
+  listFiles(dirPath: string, recursive = false): string[] {
+    if (!recursive) {
+      return fs.readdirSync(dirPath);
+    }
+
+    const files: string[] = [];
+
+    const scanDirectory = (currentPath: string, relativePath = '') => {
+      const items = fs.readdirSync(currentPath, { withFileTypes: true });
+
+      for (const item of items) {
+        const itemPath = path.join(currentPath, item.name);
+        const relativeItemPath = path.join(relativePath, item.name);
+
+        if (item.isDirectory()) {
+          scanDirectory(itemPath, relativeItemPath);
+        } else if (item.isFile()) {
+          files.push(relativeItemPath);
+        }
+      }
+    };
+
+    scanDirectory(dirPath);
+    return files;
   }
 
   exists(path: string): boolean {

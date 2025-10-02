@@ -45,6 +45,7 @@ describe('renameMediaFiles', () => {
       inputFolder: '/test/folder',
       suffix: 'vacation',
       execute: false,
+      recursive: false,
     });
 
     expect(mockFileService.renameFile).not.toHaveBeenCalled();
@@ -70,6 +71,7 @@ describe('renameMediaFiles', () => {
       inputFolder: '/test/folder',
       suffix: 'vacation',
       execute: true,
+      recursive: false,
     });
 
     expect(mockFileService.renameFile).toHaveBeenCalled();
@@ -95,6 +97,7 @@ describe('renameMediaFiles', () => {
         inputFolder: '/test/folder',
         suffix: 'vacation',
         execute: false,
+        recursive: false,
       }),
     ).rejects.toThrow('Folder /test/folder does not exist');
   });
@@ -117,6 +120,7 @@ describe('renameMediaFiles', () => {
       inputFolder: '/test/folder',
       suffix: 'vacation',
       execute: false,
+      recursive: false,
     });
     expect(mockFileService.renameFile).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(
@@ -144,6 +148,7 @@ describe('renameMediaFiles', () => {
       inputFolder: '/test/folder',
       suffix: 'vacation',
       execute: false,
+      recursive: false,
     });
 
     expect(mockFileService.renameFile).not.toHaveBeenCalled();
@@ -174,6 +179,7 @@ describe('renameMediaFiles', () => {
         inputFolder: '/test/folder',
         suffix: 'vacation',
         execute: true,
+        recursive: false,
       });
     } catch (error) {
       expect(error).toEqual(new Error('Rename error'));
@@ -255,7 +261,7 @@ describe('showHelp', () => {
     );
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('filerenamer <input_folder> <suffix> [--execute]'),
+      expect.stringContaining('filerenamer <input_folder> <suffix> [--execute] [--recursive]'),
     );
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -269,11 +275,11 @@ describe('showHelp', () => {
       expect.stringContaining('--version    Show version number'),
     );
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('filerenamer "./photos" "vacation"           # Preview changes'),
+      expect.stringContaining('filerenamer "./photos" "vacation"                      # Preview changes'),
     );
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining(
-        'filerenamer "./photos" "vacation" --execute # Actually rename files',
+        'filerenamer "./photos" "vacation" --execute            # Actually rename files',
       ),
     );
 

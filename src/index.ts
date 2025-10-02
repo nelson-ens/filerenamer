@@ -9,6 +9,7 @@ interface RenameOptions {
   inputFolder: string;
   suffix: string;
   execute: boolean;
+  recursive: boolean;
 }
 
 interface RenameOperation {
@@ -22,6 +23,7 @@ export async function renameMediaFiles({
   inputFolder,
   suffix,
   execute,
+  recursive,
 }: RenameOptions): Promise<void> {
   const fileService = new FileService();
   const operations: RenameOperation[] = [];
@@ -31,13 +33,14 @@ export async function renameMediaFiles({
       throw new Error(`Folder ${inputFolder} does not exist`);
     }
 
-    const files = fileService.listFiles(inputFolder);
+    const files = fileService.listFiles(inputFolder, recursive);
 
     // First, collect all operations
     for (const file of files) {
       const filePath = path.join(inputFolder, file);
       const extension = path.extname(file);
       const originalFileName = path.basename(file, extension);
+      const fileDirectory = path.dirname(file);
 
       if (!fileService.isMediaFile(file)) {
         console.log(`Skipping non-media file: ${file}`);
@@ -53,13 +56,14 @@ export async function renameMediaFiles({
       const creationDate = await fileService.getMediaCreationDate(filePath);
       const dateString = dayjs(creationDate).format('YYYYMMDD.HHmmss');
       const newFileName = `${dateString}-${suffix}-${originalFileName}${extension}`;
-      const newFilePath = path.join(inputFolder, newFileName);
+      const newFileRelativePath = path.join(fileDirectory, newFileName);
+      const newFilePath = path.join(inputFolder, newFileRelativePath);
 
       operations.push({
         oldPath: filePath,
         newPath: newFilePath,
         oldName: file,
-        newName: newFileName,
+        newName: newFileRelativePath,
       });
     }
 
@@ -102,14 +106,17 @@ export async function renameMediaFiles({
 export function showHelp(): void {
   console.log('\nFile Renamer - Rename media files with their capture date');
   console.log('\nUsage:');
-  console.log('  filerenamer <input_folder> <suffix> [--execute]');
+  console.log('  filerenamer <input_folder> <suffix> [--execute] [--recursive]');
   console.log('\nOptions:');
   console.log('  --execute    Actually perform the rename operations (default: dry-run)');
+  console.log('  --recursive, -r  Process files in subdirectories recursively');
   console.log('  --help       Show this help message');
   console.log('  --version    Show version number');
   console.log('\nExamples:');
-  console.log('  filerenamer "./photos" "vacation"           # Preview changes');
-  console.log('  filerenamer "./photos" "vacation" --execute # Actually rename files');
+  console.log('  filerenamer "./photos" "vacation"                      # Preview changes');
+  console.log('  filerenamer "./photos" "vacation" --execute            # Actually rename files');
+  console.log('  filerenamer "./photos" "vacation" --recursive          # Process subdirectories');
+  console.log('  filerenamer "./photos" "vacation" --execute -r         # Rename recursively');
 }
 
 export function showVersion(): void {
@@ -137,9 +144,10 @@ export async function main(): Promise<void> {
 
   const [inputFolder, suffix] = args;
   const execute = args.includes('--execute');
+  const recursive = args.includes('--recursive') || args.includes('-r');
 
   try {
-    await renameMediaFiles({ inputFolder, suffix, execute });
+    await renameMediaFiles({ inputFolder, suffix, execute, recursive });
     console.log(execute ? '\n🎉 Rename operations completed.' : '\n✨ Preview completed.');
   } catch (error) {
     console.error('❌ Error:', error);
