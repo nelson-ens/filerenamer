@@ -117,6 +117,8 @@ Example:
 
 Year and quarter folders are created automatically on `--execute`. Dry-run only previews paths without creating folders or moving files.
 
+Already-timestamped files (matching `YYYYMMDD.HHmmss-...`) are skipped during normal rename, but with `--organize` they are moved into the matching year/quarter folder without being renamed again.
+
 Without `--organize`, behavior is unchanged (rename in place).
 
 ### Preview Mode (Default)

@@ -2,6 +2,8 @@ import {
   findRenameConflicts,
   getOrganizeFolder,
   getQuarter,
+  hasTimestampPrefix,
+  parseTimestampFromFileName,
   renameMediaFiles,
   shortenFileName,
   showHelp,
@@ -329,6 +331,98 @@ describe('renameMediaFiles', () => {
 
     expect(mockFileService.ensureDirectory).not.toHaveBeenCalled();
     expect(mockFileService.renameFile).not.toHaveBeenCalled();
+  });
+
+  it('should skip already-timestamped files when organize is false', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const mockFileService = {
+      exists: jest.fn(folderExists),
+      listFiles: jest.fn().mockReturnValue(['20260327.232732-family-IMG_9626.jpeg']),
+      isMediaFile: jest.fn().mockReturnValue(true),
+      getMediaCreationDate: jest.fn(),
+      renameFile: jest.fn(),
+    };
+
+    (FileService as jest.MockedClass<typeof FileService>).mockImplementation(
+      () => mockFileService as unknown as FileService,
+    );
+
+    await renameMediaFiles({
+      inputFolder,
+      suffix: 'family',
+      execute: false,
+      recursive: false,
+      organize: false,
+    });
+
+    expect(mockFileService.getMediaCreationDate).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Skipping file with timestamp: 20260327.232732-family-IMG_9626.jpeg'),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it('should move already-timestamped files when organize is set', async () => {
+    const mockFileService = {
+      exists: jest.fn(folderExists),
+      listFiles: jest.fn().mockReturnValue(['20260327.232732-family-IMG_9626.jpeg']),
+      isMediaFile: jest.fn().mockReturnValue(true),
+      getMediaCreationDate: jest.fn(),
+      ensureDirectory: jest.fn(),
+      renameFile: jest.fn(),
+    };
+
+    (FileService as jest.MockedClass<typeof FileService>).mockImplementation(
+      () => mockFileService as unknown as FileService,
+    );
+
+    await renameMediaFiles({
+      inputFolder,
+      suffix: 'family',
+      execute: true,
+      recursive: false,
+      organize: true,
+    });
+
+    const expectedDir = getOrganizeFolder(
+      inputFolder,
+      parseTimestampFromFileName('20260327.232732-family-IMG_9626') as Date,
+    );
+
+    expect(mockFileService.getMediaCreationDate).not.toHaveBeenCalled();
+    expect(mockFileService.ensureDirectory).toHaveBeenCalledWith(expectedDir);
+    expect(mockFileService.renameFile).toHaveBeenCalledWith(
+      `${inputFolder}/20260327.232732-family-IMG_9626.jpeg`,
+      path.join(expectedDir, '20260327.232732-family-IMG_9626.jpeg'),
+    );
+  });
+});
+
+describe('parseTimestampFromFileName', () => {
+  it('parses a dotted timestamp prefix', () => {
+    const date = parseTimestampFromFileName('20260327.232732-family-IMG_9626');
+
+    expect(date).toEqual(new Date(2026, 2, 27, 23, 27, 32));
+  });
+
+  it('parses an underscored timestamp prefix', () => {
+    const date = parseTimestampFromFileName('20260327_232732-family-IMG_9626');
+
+    expect(date).toEqual(new Date(2026, 2, 27, 23, 27, 32));
+  });
+
+  it('returns null when no timestamp prefix is present', () => {
+    expect(parseTimestampFromFileName('IMG_9626')).toBeNull();
+  });
+});
+
+describe('hasTimestampPrefix', () => {
+  it('returns true for timestamped filenames', () => {
+    expect(hasTimestampPrefix('20260327.232732-family-IMG_9626')).toBe(true);
+  });
+
+  it('returns false for regular filenames', () => {
+    expect(hasTimestampPrefix('IMG_9626')).toBe(false);
   });
 });
 

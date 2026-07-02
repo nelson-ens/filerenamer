@@ -85,6 +85,30 @@ export function shortenFileName(fileName: string): string {
   return fileName;
 }
 
+// Matches leading capture timestamp like 20260327.232732 or 20260327_232732
+const FILENAME_TIMESTAMP_PATTERN = /^(\d{4})(\d{2})(\d{2})[._](\d{2})(\d{2})(\d{2})/;
+
+export function parseTimestampFromFileName(fileName: string): Date | null {
+  const match = fileName.match(FILENAME_TIMESTAMP_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const [, year, month, day, hour, minute, second] = match;
+  return new Date(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+  );
+}
+
+export function hasTimestampPrefix(fileName: string): boolean {
+  return FILENAME_TIMESTAMP_PATTERN.test(fileName);
+}
+
 export function getQuarter(month: number): number {
   return Math.ceil(month / 3);
 }
@@ -124,9 +148,31 @@ export async function renameMediaFiles({
         continue;
       }
 
-      // if already starts with timestamp, skip
-      if (originalFileName.match(/^\d{8}[._]\d{6}/)) {
+      const alreadyTimestamped = hasTimestampPrefix(originalFileName);
+
+      if (alreadyTimestamped && !organize) {
         console.log(`Skipping file with timestamp: ${file}`);
+        continue;
+      }
+
+      if (alreadyTimestamped && organize) {
+        const parsedDate = parseTimestampFromFileName(originalFileName);
+        if (!parsedDate) {
+          console.log(`Skipping file with unparseable timestamp: ${file}`);
+          continue;
+        }
+
+        const organizeDir = getOrganizeFolder(inputFolder, parsedDate);
+        const newFileName = `${originalFileName}${extension}`;
+        const newFilePath = path.join(organizeDir, newFileName);
+        const newFileRelativePath = path.relative(inputFolder, newFilePath);
+
+        operations.push({
+          oldPath: filePath,
+          newPath: newFilePath,
+          oldName: file,
+          newName: newFileRelativePath,
+        });
         continue;
       }
 
@@ -157,7 +203,7 @@ export async function renameMediaFiles({
 
     // Report planned operations
     if (operations.length === 0) {
-      console.log('No media files found to rename.');
+      console.log(organize ? 'No media files found to organize.' : 'No media files found to rename.');
       return;
     }
 
@@ -244,7 +290,7 @@ export function showHelp(): void {
   console.log('\nOptions:');
   console.log('  --execute    Actually perform the rename operations (default: dry-run)');
   console.log('  --recursive, -r  Process files in subdirectories recursively');
-  console.log('  --organize   Rename files and move them into year/quarter folders (YYYY/Qn)');
+  console.log('  --organize   Rename files and move them into year/quarter folders (YYYY/Qn); also moves already-timestamped files');
   console.log('  --help       Show this help message');
   console.log('  --version    Show version number');
   console.log('\nExamples:');
