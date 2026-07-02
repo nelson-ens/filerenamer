@@ -55,6 +55,9 @@ export class FileService {
   }
 
   renameFile(oldPath: string, newPath: string): void {
+    if (oldPath !== newPath && fs.existsSync(newPath)) {
+      throw new Error(`Cannot rename: target already exists: ${newPath}`);
+    }
     fs.renameSync(oldPath, newPath);
   }
 

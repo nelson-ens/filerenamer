@@ -95,8 +95,25 @@ describe('FileService', () => {
 
   describe('renameFile', () => {
     it('should rename a file', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(false);
+
       fileService.renameFile('oldPath.jpg', 'newPath.jpg');
       expect(fs.renameSync).toHaveBeenCalledWith('oldPath.jpg', 'newPath.jpg');
+    });
+
+    it('should throw if the target already exists', () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+
+      expect(() => fileService.renameFile('oldPath.jpg', 'newPath.jpg')).toThrow(
+        'Cannot rename: target already exists: newPath.jpg',
+      );
+      expect(fs.renameSync).not.toHaveBeenCalled();
+    });
+
+    it('should allow renaming to the same path', () => {
+      fileService.renameFile('samePath.jpg', 'samePath.jpg');
+      expect(fs.existsSync).not.toHaveBeenCalled();
+      expect(fs.renameSync).toHaveBeenCalledWith('samePath.jpg', 'samePath.jpg');
     });
   });
 

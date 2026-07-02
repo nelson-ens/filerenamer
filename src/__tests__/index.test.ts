@@ -1,4 +1,4 @@
-import { renameMediaFiles, showHelp, showVersion } from '../index';
+import { findRenameConflicts, renameMediaFiles, shortenFileName, showHelp, showVersion } from '../index';
 import { FileService } from '../services/fileService';
 
 jest.mock('../services/fileService');
@@ -10,7 +10,10 @@ jest.mock('exiftool-vendored', () => ({
 
 describe('renameMediaFiles', () => {
   const mockDate = new Date('2024-02-25T12:00:00Z');
+  const inputFolder = '/test/folder';
   let originalConsoleError: typeof console.error;
+
+  const folderExists = (path: string) => path === inputFolder;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -29,7 +32,7 @@ describe('renameMediaFiles', () => {
   it('should only preview changes by default', async () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
     const mockFileService = {
-      exists: jest.fn().mockReturnValue(true),
+      exists: jest.fn(folderExists),
       listFiles: jest.fn().mockReturnValue(['test1.jpg', 'test2.jpg']),
       isMediaFile: jest.fn().mockReturnValue(true),
       getMediaCreationDate: jest.fn().mockResolvedValue(mockDate),
@@ -42,7 +45,7 @@ describe('renameMediaFiles', () => {
     );
 
     await renameMediaFiles({
-      inputFolder: '/test/folder',
+      inputFolder,
       suffix: 'vacation',
       execute: false,
       recursive: false,
@@ -55,7 +58,7 @@ describe('renameMediaFiles', () => {
 
   it('should execute rename operations when execute flag is true', async () => {
     const mockFileService = {
-      exists: jest.fn().mockReturnValue(true),
+      exists: jest.fn(folderExists),
       listFiles: jest.fn().mockReturnValue(['test1.jpg', 'test2.jpg']),
       isMediaFile: jest.fn().mockReturnValue(true),
       getMediaCreationDate: jest.fn().mockResolvedValue(mockDate),
@@ -68,7 +71,7 @@ describe('renameMediaFiles', () => {
     );
 
     await renameMediaFiles({
-      inputFolder: '/test/folder',
+      inputFolder,
       suffix: 'vacation',
       execute: true,
       recursive: false,
@@ -94,18 +97,18 @@ describe('renameMediaFiles', () => {
 
     await expect(
       renameMediaFiles({
-        inputFolder: '/test/folder',
+        inputFolder,
         suffix: 'vacation',
         execute: false,
         recursive: false,
       }),
-    ).rejects.toThrow('Folder /test/folder does not exist');
+    ).rejects.toThrow(`Folder ${inputFolder} does not exist`);
   });
 
   it('should skip non-media files', async () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
     const mockFileService = {
-      exists: jest.fn().mockReturnValue(true),
+      exists: jest.fn(folderExists),
       listFiles: jest.fn().mockReturnValue(['test1.jpg', 'test2.txt']),
       isMediaFile: jest.fn((file) => file.endsWith('.jpg')),
       getMediaCreationDate: jest.fn().mockResolvedValue(mockDate),
@@ -117,7 +120,7 @@ describe('renameMediaFiles', () => {
       () => mockFileService as unknown as FileService,
     );
     await renameMediaFiles({
-      inputFolder: '/test/folder',
+      inputFolder,
       suffix: 'vacation',
       execute: false,
       recursive: false,
@@ -132,7 +135,7 @@ describe('renameMediaFiles', () => {
   it('should handle no media files found', async () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
     const mockFileService = {
-      exists: jest.fn().mockReturnValue(true),
+      exists: jest.fn(folderExists),
       listFiles: jest.fn().mockReturnValue(['test1.txt']),
       isMediaFile: jest.fn().mockReturnValue(false),
       getMediaCreationDate: jest.fn(),
@@ -145,7 +148,7 @@ describe('renameMediaFiles', () => {
     );
 
     await renameMediaFiles({
-      inputFolder: '/test/folder',
+      inputFolder,
       suffix: 'vacation',
       execute: false,
       recursive: false,
@@ -160,7 +163,7 @@ describe('renameMediaFiles', () => {
 
   it('should handle errors during renaming', async () => {
     const mockFileService = {
-      exists: jest.fn().mockReturnValue(true),
+      exists: jest.fn(folderExists),
       listFiles: jest.fn().mockReturnValue(['test1.jpg']),
       isMediaFile: jest.fn().mockReturnValue(true),
       getMediaCreationDate: jest.fn().mockResolvedValue(mockDate),
@@ -176,7 +179,7 @@ describe('renameMediaFiles', () => {
 
     try {
       await renameMediaFiles({
-        inputFolder: '/test/folder',
+        inputFolder,
         suffix: 'vacation',
         execute: true,
         recursive: false,
@@ -184,6 +187,130 @@ describe('renameMediaFiles', () => {
     } catch (error) {
       expect(error).toEqual(new Error('Rename error'));
     }
+  });
+
+  it('should skip renames when the target already exists on disk', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const targetPath = '/test/folder/20240225.040000-vacation-test1.jpg';
+    const mockFileService = {
+      exists: jest.fn((path: string) => path === inputFolder || path === targetPath),
+      listFiles: jest.fn().mockReturnValue(['test1.jpg']),
+      isMediaFile: jest.fn().mockReturnValue(true),
+      getMediaCreationDate: jest.fn().mockResolvedValue(mockDate),
+      renameFile: jest.fn(),
+      getFileDate: jest.fn().mockResolvedValue(mockDate),
+    };
+
+    (FileService as jest.MockedClass<typeof FileService>).mockImplementation(
+      () => mockFileService as unknown as FileService,
+    );
+
+    await renameMediaFiles({
+      inputFolder,
+      suffix: 'vacation',
+      execute: true,
+      recursive: false,
+    });
+
+    expect(mockFileService.renameFile).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Skipped rename operations (target already exists)'),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  it('should skip duplicate target names within the same batch', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const mockFileService = {
+      exists: jest.fn(folderExists),
+      listFiles: jest.fn().mockReturnValue([
+        'IMG_AAAAAAAA-1111-1111-1111-111111111111.jpg',
+        'IMG_AAAAAAAA-2222-2222-2222-222222222222.jpg',
+      ]),
+      isMediaFile: jest.fn().mockReturnValue(true),
+      getMediaCreationDate: jest.fn().mockResolvedValue(mockDate),
+      renameFile: jest.fn(),
+      getFileDate: jest.fn().mockResolvedValue(mockDate),
+    };
+
+    (FileService as jest.MockedClass<typeof FileService>).mockImplementation(
+      () => mockFileService as unknown as FileService,
+    );
+
+    await renameMediaFiles({
+      inputFolder,
+      suffix: 'vacation',
+      execute: true,
+      recursive: false,
+    });
+
+    expect(mockFileService.renameFile).toHaveBeenCalledTimes(1);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Target name already used by another file in this batch'),
+    );
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('findRenameConflicts', () => {
+  it('flags duplicate target names in the same batch', () => {
+    const operations = [
+      {
+        oldPath: '/photos/a.jpg',
+        newPath: '/photos/target.jpg',
+        oldName: 'a.jpg',
+        newName: 'target.jpg',
+      },
+      {
+        oldPath: '/photos/b.jpg',
+        newPath: '/photos/target.jpg',
+        oldName: 'b.jpg',
+        newName: 'target.jpg',
+      },
+    ];
+
+    const conflicts = findRenameConflicts(operations, () => false);
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].operation.oldName).toBe('b.jpg');
+  });
+
+  it('flags targets that already exist on disk', () => {
+    const operations = [
+      {
+        oldPath: '/photos/a.jpg',
+        newPath: '/photos/target.jpg',
+        oldName: 'a.jpg',
+        newName: 'target.jpg',
+      },
+    ];
+
+    const conflicts = findRenameConflicts(operations, (path) => path === '/photos/target.jpg');
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].reason).toContain('Target file already exists');
+  });
+});
+
+describe('shortenFileName', () => {
+  it('shortens a bare GUID to its first segment', () => {
+    expect(shortenFileName('10D69C2B-85A8-40CC-BC40-9739D0B70047')).toBe('10D69C2B');
+  });
+
+  it('shortens a prefixed GUID to prefix + first segment', () => {
+    expect(shortenFileName('IMG_0F856183-8E47-40F2-848E-D28E823B3E6C')).toBe('IMG_0F856183');
+  });
+
+  it('shortens a lowercase GUID the same as uppercase', () => {
+    expect(shortenFileName('img_0f856183-8e47-40f2-848e-d28e823b3e6c')).toBe('img_0f856183');
+  });
+
+  it('shortens a filename with an embedded timestamp to the text before it', () => {
+    expect(shortenFileName('Screenshot 2026-02-06 at 1.57.16â¯PM')).toBe('Screenshot');
+  });
+
+  it('leaves filenames without a GUID or timestamp unchanged', () => {
+    expect(shortenFileName('vacation-photo')).toBe('vacation-photo');
   });
 });
 

@@ -19,6 +19,71 @@ interface RenameOperation {
   newName: string;
 }
 
+export interface RenameConflict {
+  operation: RenameOperation;
+  reason: string;
+}
+
+export function findRenameConflicts(
+  operations: RenameOperation[],
+  exists: (filePath: string) => boolean,
+): RenameConflict[] {
+  const conflicts: RenameConflict[] = [];
+  const claimedTargets = new Set<string>();
+
+  for (const operation of operations) {
+    const { oldPath, newPath, newName } = operation;
+
+    if (oldPath === newPath) {
+      continue;
+    }
+
+    if (claimedTargets.has(newPath)) {
+      conflicts.push({
+        operation,
+        reason: `Target name already used by another file in this batch: ${newName}`,
+      });
+      continue;
+    }
+
+    if (exists(newPath)) {
+      conflicts.push({
+        operation,
+        reason: `Target file already exists: ${newName}`,
+      });
+      continue;
+    }
+
+    claimedTargets.add(newPath);
+  }
+
+  return conflicts;
+}
+
+// Matches a UUID/GUID like 10D69C2B-85A8-40CC-BC40-9739D0B70047, optionally
+// preceded by a prefix (e.g. "IMG_"). Shortens to prefix + first 8 hex chars.
+const GUID_PATTERN = /^(.*?)([0-9a-f]{8})-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+// Matches an embedded date like 2026-02-06 (e.g. "Screenshot 2026-02-06 at 1.57.16 PM").
+const TIMESTAMP_PATTERN = /^(.*?)\d{4}-\d{2}-\d{2}/;
+
+export function shortenFileName(fileName: string): string {
+  const guidMatch = fileName.match(GUID_PATTERN);
+  if (guidMatch) {
+    return `${guidMatch[1]}${guidMatch[2]}`;
+  }
+
+  const timestampMatch = fileName.match(TIMESTAMP_PATTERN);
+  if (timestampMatch) {
+    const prefix = timestampMatch[1].replace(/[-_\s]+$/, '');
+    if (prefix) {
+      return prefix;
+    }
+  }
+
+  return fileName;
+}
+
 export async function renameMediaFiles({
   inputFolder,
   suffix,
@@ -48,14 +113,15 @@ export async function renameMediaFiles({
       }
 
       // if already starts with timestamp, skip
-      if (originalFileName.match(/^\d{8}\.\d{6}/)) {
+      if (originalFileName.match(/^\d{8}[._]\d{6}/)) {
         console.log(`Skipping file with timestamp: ${file}`);
         continue;
       }
 
       const creationDate = await fileService.getMediaCreationDate(filePath);
       const dateString = dayjs(creationDate).format('YYYYMMDD.HHmmss');
-      const newFileName = `${dateString}-${suffix}-${originalFileName}${extension}`;
+      const shortenedFileName = shortenFileName(originalFileName);
+      const newFileName = `${dateString}-${suffix}-${shortenedFileName}${extension}`;
       const newFileRelativePath = path.join(fileDirectory, newFileName);
       const newFilePath = path.join(inputFolder, newFileRelativePath);
 
@@ -73,6 +139,12 @@ export async function renameMediaFiles({
       return;
     }
 
+    const conflicts = findRenameConflicts(operations, (filePath) => fileService.exists(filePath));
+    const conflictedOperations = new Set(conflicts.map(({ operation }) => operation));
+    const executableOperations = operations.filter(
+      (operation) => !conflictedOperations.has(operation),
+    );
+
     console.log('\nPlanned rename operations:');
     console.log('-------------------------');
     operations.forEach(({ oldName, newName }) => {
@@ -81,14 +153,42 @@ export async function renameMediaFiles({
     console.log('-------------------------');
     console.log(`Total files to rename: ${operations.length}`);
 
+    if (conflicts.length > 0) {
+      console.log('\nSkipped rename operations (target already exists):');
+      console.log('-------------------------');
+      conflicts.forEach(({ operation, reason }) => {
+        console.log(`${operation.oldName} -> ${operation.newName}`);
+        console.log(`  Reason: ${reason}`);
+      });
+      console.log('-------------------------');
+      console.log(`Total skipped: ${conflicts.length}`);
+    }
+
     // Execute operations only if execute flag is true
     if (execute) {
       console.log('\n⚠️  EXECUTING rename operations...');
-      operations.forEach(({ oldPath, newPath, oldName, newName }) => {
+      let renamedCount = 0;
+
+      for (const { oldPath, newPath, oldName, newName } of executableOperations) {
+        if (oldPath === newPath) {
+          console.log(`Skipping (already named): ${oldName}`);
+          continue;
+        }
+
         fileService.renameFile(oldPath, newPath);
         console.log(`✓ Renamed: ${oldName} -> ${newName}`);
-      });
-      console.log('\n✨ All files renamed successfully!');
+        renamedCount++;
+      }
+
+      if (renamedCount === 0 && conflicts.length > 0) {
+        console.log('\nNo files were renamed due to existing target names.');
+      } else if (conflicts.length > 0) {
+        console.log(
+          `\n✨ Renamed ${renamedCount} file(s); skipped ${conflicts.length} due to existing target names.`,
+        );
+      } else {
+        console.log('\n✨ All files renamed successfully!');
+      }
     } else {
       console.log(
         '\n📝 DRY RUN: This was a preview. Use --execute flag to perform the actual renaming.',
