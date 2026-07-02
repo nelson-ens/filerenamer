@@ -73,6 +73,12 @@ filerenamer "./photos" "vacation"
 # Execute mode (actually rename files)
 filerenamer "./photos" "vacation" --execute
 
+# Organize into year/quarter folders (preview)
+filerenamer "./photos" "family" --organize
+
+# Organize into year/quarter folders (execute)
+filerenamer "./photos" "family" --organize --execute
+
 # Show help
 filerenamer --help
 
@@ -85,6 +91,33 @@ filerenamer --version
 1. `inputFolder`: Path to the folder containing media files
 2. `suffix`: Custom text to append to the filename
 3. `--execute` (optional): Actually perform the rename operations. Without this flag, only a preview is shown.
+4. `--recursive`, `-r` (optional): Process files in subdirectories recursively
+5. `--organize` (optional): After renaming, move files into `{inputFolder}/{year}/Q{n}/` folders based on capture date
+
+### Organize by Quarter (`--organize`)
+
+When `--organize` is set, files are renamed as usual, then moved into folders under the input directory:
+
+```
+{inputFolder}/{year}/Q{n}/{YYYYMMDD.HHmmss-suffix-originalfilename.ext}
+```
+
+Quarter mapping by capture month:
+
+- Jan–Mar → `Q1`
+- Apr–Jun → `Q2`
+- Jul–Sep → `Q3`
+- Oct–Dec → `Q4`
+
+Example:
+
+- Capture date: March 27, 2026
+- Input: `./photos/IMG_9626.jpeg`
+- Output: `./photos/2026/Q1/20260327.232732-family-IMG_9626.jpeg`
+
+Year and quarter folders are created automatically on `--execute`. Dry-run only previews paths without creating folders or moving files.
+
+Without `--organize`, behavior is unchanged (rename in place).
 
 ### Preview Mode (Default)
 

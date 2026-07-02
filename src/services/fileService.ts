@@ -54,6 +54,10 @@ export class FileService {
     return mediaExtensions.has(path.extname(filename).toLowerCase());
   }
 
+  ensureDirectory(dirPath: string): void {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+
   renameFile(oldPath: string, newPath: string): void {
     if (oldPath !== newPath && fs.existsSync(newPath)) {
       throw new Error(`Cannot rename: target already exists: ${newPath}`);

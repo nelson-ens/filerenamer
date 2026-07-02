@@ -10,6 +10,7 @@ interface RenameOptions {
   suffix: string;
   execute: boolean;
   recursive: boolean;
+  organize: boolean;
 }
 
 interface RenameOperation {
@@ -84,11 +85,22 @@ export function shortenFileName(fileName: string): string {
   return fileName;
 }
 
+export function getQuarter(month: number): number {
+  return Math.ceil(month / 3);
+}
+
+export function getOrganizeFolder(inputFolder: string, date: Date): string {
+  const year = dayjs(date).year();
+  const month = dayjs(date).month() + 1;
+  return path.join(inputFolder, String(year), `Q${getQuarter(month)}`);
+}
+
 export async function renameMediaFiles({
   inputFolder,
   suffix,
   execute,
   recursive,
+  organize,
 }: RenameOptions): Promise<void> {
   const fileService = new FileService();
   const operations: RenameOperation[] = [];
@@ -122,8 +134,18 @@ export async function renameMediaFiles({
       const dateString = dayjs(creationDate).format('YYYYMMDD.HHmmss');
       const shortenedFileName = shortenFileName(originalFileName);
       const newFileName = `${dateString}-${suffix}-${shortenedFileName}${extension}`;
-      const newFileRelativePath = path.join(fileDirectory, newFileName);
-      const newFilePath = path.join(inputFolder, newFileRelativePath);
+
+      let newFilePath: string;
+      let newFileRelativePath: string;
+
+      if (organize) {
+        const organizeDir = getOrganizeFolder(inputFolder, creationDate);
+        newFilePath = path.join(organizeDir, newFileName);
+        newFileRelativePath = path.relative(inputFolder, newFilePath);
+      } else {
+        newFileRelativePath = path.join(fileDirectory, newFileName);
+        newFilePath = path.join(inputFolder, newFileRelativePath);
+      }
 
       operations.push({
         oldPath: filePath,
@@ -145,16 +167,18 @@ export async function renameMediaFiles({
       (operation) => !conflictedOperations.has(operation),
     );
 
-    console.log('\nPlanned rename operations:');
+    const operationLabel = organize ? 'organize' : 'rename';
+
+    console.log(`\nPlanned ${operationLabel} operations:`);
     console.log('-------------------------');
     operations.forEach(({ oldName, newName }) => {
       console.log(`${oldName} -> ${newName}`);
     });
     console.log('-------------------------');
-    console.log(`Total files to rename: ${operations.length}`);
+    console.log(`Total files to ${operationLabel}: ${operations.length}`);
 
     if (conflicts.length > 0) {
-      console.log('\nSkipped rename operations (target already exists):');
+      console.log(`\nSkipped ${operationLabel} operations (target already exists):`);
       console.log('-------------------------');
       conflicts.forEach(({ operation, reason }) => {
         console.log(`${operation.oldName} -> ${operation.newName}`);
@@ -166,7 +190,8 @@ export async function renameMediaFiles({
 
     // Execute operations only if execute flag is true
     if (execute) {
-      console.log('\n⚠️  EXECUTING rename operations...');
+      const executeLabel = organize ? 'organize' : 'rename';
+      console.log(`\n⚠️  EXECUTING ${executeLabel} operations...`);
       let renamedCount = 0;
 
       for (const { oldPath, newPath, oldName, newName } of executableOperations) {
@@ -175,25 +200,34 @@ export async function renameMediaFiles({
           continue;
         }
 
+        if (organize) {
+          fileService.ensureDirectory(path.dirname(newPath));
+        }
+
         fileService.renameFile(oldPath, newPath);
-        console.log(`✓ Renamed: ${oldName} -> ${newName}`);
+        console.log(`✓ ${organize ? 'Organized' : 'Renamed'}: ${oldName} -> ${newName}`);
         renamedCount++;
       }
 
       if (renamedCount === 0 && conflicts.length > 0) {
-        console.log('\nNo files were renamed due to existing target names.');
+        console.log(`\nNo files were ${executeLabel}d due to existing target names.`);
       } else if (conflicts.length > 0) {
         console.log(
-          `\n✨ Renamed ${renamedCount} file(s); skipped ${conflicts.length} due to existing target names.`,
+          `\n✨ ${organize ? 'Organized' : 'Renamed'} ${renamedCount} file(s); skipped ${conflicts.length} due to existing target names.`,
         );
       } else {
-        console.log('\n✨ All files renamed successfully!');
+        console.log(`\n✨ All files ${executeLabel}d successfully!`);
       }
     } else {
+      const action = organize ? 'organizing' : 'renaming';
       console.log(
-        '\n📝 DRY RUN: This was a preview. Use --execute flag to perform the actual renaming.',
+        `\n📝 DRY RUN: This was a preview. Use --execute flag to perform the actual ${action}.`,
       );
-      console.log('Example: pnpm start "/path/to/folder" "suffix" --execute');
+      console.log(
+        organize
+          ? 'Example: pnpm start "/path/to/folder" "suffix" --organize --execute'
+          : 'Example: pnpm start "/path/to/folder" "suffix" --execute',
+      );
     }
   } catch (error) {
     console.error('Error processing files:', error);
@@ -206,10 +240,11 @@ export async function renameMediaFiles({
 export function showHelp(): void {
   console.log('\nFile Renamer - Rename media files with their capture date');
   console.log('\nUsage:');
-  console.log('  filerenamer <input_folder> <suffix> [--execute] [--recursive]');
+  console.log('  filerenamer <input_folder> <suffix> [--execute] [--recursive] [--organize]');
   console.log('\nOptions:');
   console.log('  --execute    Actually perform the rename operations (default: dry-run)');
   console.log('  --recursive, -r  Process files in subdirectories recursively');
+  console.log('  --organize   Rename files and move them into year/quarter folders (YYYY/Qn)');
   console.log('  --help       Show this help message');
   console.log('  --version    Show version number');
   console.log('\nExamples:');
@@ -217,6 +252,9 @@ export function showHelp(): void {
   console.log('  filerenamer "./photos" "vacation" --execute            # Actually rename files');
   console.log('  filerenamer "./photos" "vacation" --recursive          # Process subdirectories');
   console.log('  filerenamer "./photos" "vacation" --execute -r         # Rename recursively');
+  console.log(
+    '  filerenamer "./photos" "family" --organize --execute     # Rename and move to year/Q folders',
+  );
 }
 
 export function showVersion(): void {
@@ -237,17 +275,20 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  if (args.length < 2 || args.length > 3) {
+  const positionalArgs = args.filter((arg) => !arg.startsWith('-'));
+
+  if (positionalArgs.length < 2) {
     showHelp();
     process.exit(1);
   }
 
-  const [inputFolder, suffix] = args;
+  const [inputFolder, suffix] = positionalArgs;
   const execute = args.includes('--execute');
   const recursive = args.includes('--recursive') || args.includes('-r');
+  const organize = args.includes('--organize');
 
   try {
-    await renameMediaFiles({ inputFolder, suffix, execute, recursive });
+    await renameMediaFiles({ inputFolder, suffix, execute, recursive, organize });
     console.log(execute ? '\n🎉 Rename operations completed.' : '\n✨ Preview completed.');
   } catch (error) {
     console.error('❌ Error:', error);

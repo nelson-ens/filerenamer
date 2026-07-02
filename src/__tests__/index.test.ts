@@ -1,5 +1,14 @@
-import { findRenameConflicts, renameMediaFiles, shortenFileName, showHelp, showVersion } from '../index';
+import {
+  findRenameConflicts,
+  getOrganizeFolder,
+  getQuarter,
+  renameMediaFiles,
+  shortenFileName,
+  showHelp,
+  showVersion,
+} from '../index';
 import { FileService } from '../services/fileService';
+import * as path from 'path';
 
 jest.mock('../services/fileService');
 jest.mock('exiftool-vendored', () => ({
@@ -49,6 +58,7 @@ describe('renameMediaFiles', () => {
       suffix: 'vacation',
       execute: false,
       recursive: false,
+      organize: false,
     });
 
     expect(mockFileService.renameFile).not.toHaveBeenCalled();
@@ -75,6 +85,7 @@ describe('renameMediaFiles', () => {
       suffix: 'vacation',
       execute: true,
       recursive: false,
+      organize: false,
     });
 
     expect(mockFileService.renameFile).toHaveBeenCalled();
@@ -101,6 +112,7 @@ describe('renameMediaFiles', () => {
         suffix: 'vacation',
         execute: false,
         recursive: false,
+        organize: false,
       }),
     ).rejects.toThrow(`Folder ${inputFolder} does not exist`);
   });
@@ -124,6 +136,7 @@ describe('renameMediaFiles', () => {
       suffix: 'vacation',
       execute: false,
       recursive: false,
+      organize: false,
     });
     expect(mockFileService.renameFile).not.toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(
@@ -152,6 +165,7 @@ describe('renameMediaFiles', () => {
       suffix: 'vacation',
       execute: false,
       recursive: false,
+      organize: false,
     });
 
     expect(mockFileService.renameFile).not.toHaveBeenCalled();
@@ -183,6 +197,7 @@ describe('renameMediaFiles', () => {
         suffix: 'vacation',
         execute: true,
         recursive: false,
+        organize: false,
       });
     } catch (error) {
       expect(error).toEqual(new Error('Rename error'));
@@ -210,6 +225,7 @@ describe('renameMediaFiles', () => {
       suffix: 'vacation',
       execute: true,
       recursive: false,
+      organize: false,
     });
 
     expect(mockFileService.renameFile).not.toHaveBeenCalled();
@@ -242,6 +258,7 @@ describe('renameMediaFiles', () => {
       suffix: 'vacation',
       execute: true,
       recursive: false,
+      organize: false,
     });
 
     expect(mockFileService.renameFile).toHaveBeenCalledTimes(1);
@@ -249,6 +266,98 @@ describe('renameMediaFiles', () => {
       expect.stringContaining('Target name already used by another file in this batch'),
     );
     consoleSpy.mockRestore();
+  });
+
+  it('should organize files into year/quarter folders when --organize is set', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const marchDate = new Date('2026-03-27T12:00:00Z');
+    const mockFileService = {
+      exists: jest.fn(folderExists),
+      listFiles: jest.fn().mockReturnValue(['IMG_9626.jpeg']),
+      isMediaFile: jest.fn().mockReturnValue(true),
+      getMediaCreationDate: jest.fn().mockResolvedValue(marchDate),
+      ensureDirectory: jest.fn(),
+      renameFile: jest.fn(),
+      getFileDate: jest.fn().mockResolvedValue(marchDate),
+    };
+
+    (FileService as jest.MockedClass<typeof FileService>).mockImplementation(
+      () => mockFileService as unknown as FileService,
+    );
+
+    await renameMediaFiles({
+      inputFolder,
+      suffix: 'family',
+      execute: true,
+      recursive: false,
+      organize: true,
+    });
+
+    const expectedDir = getOrganizeFolder(inputFolder, marchDate);
+    expect(mockFileService.ensureDirectory).toHaveBeenCalledWith(expectedDir);
+    expect(mockFileService.renameFile).toHaveBeenCalledWith(
+      `${inputFolder}/IMG_9626.jpeg`,
+      expect.stringContaining(`${expectedDir}${path.sep}20260327.`),
+    );
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Planned organize operations'));
+    consoleSpy.mockRestore();
+  });
+
+  it('should not create folders during organize dry run', async () => {
+    const marchDate = new Date('2026-03-27T12:00:00Z');
+    const mockFileService = {
+      exists: jest.fn(folderExists),
+      listFiles: jest.fn().mockReturnValue(['IMG_9626.jpeg']),
+      isMediaFile: jest.fn().mockReturnValue(true),
+      getMediaCreationDate: jest.fn().mockResolvedValue(marchDate),
+      ensureDirectory: jest.fn(),
+      renameFile: jest.fn(),
+      getFileDate: jest.fn().mockResolvedValue(marchDate),
+    };
+
+    (FileService as jest.MockedClass<typeof FileService>).mockImplementation(
+      () => mockFileService as unknown as FileService,
+    );
+
+    await renameMediaFiles({
+      inputFolder,
+      suffix: 'family',
+      execute: false,
+      recursive: false,
+      organize: true,
+    });
+
+    expect(mockFileService.ensureDirectory).not.toHaveBeenCalled();
+    expect(mockFileService.renameFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('getQuarter', () => {
+  it.each([
+    [1, 1],
+    [3, 1],
+    [4, 2],
+    [6, 2],
+    [7, 3],
+    [9, 3],
+    [10, 4],
+    [12, 4],
+  ])('maps month %i to Q%i', (month, quarter) => {
+    expect(getQuarter(month)).toBe(quarter);
+  });
+});
+
+describe('getOrganizeFolder', () => {
+  it('returns year and quarter folder for a March date', () => {
+    expect(getOrganizeFolder('/photos', new Date('2026-03-27T12:00:00Z'))).toBe(
+      path.join('/photos', '2026', 'Q1'),
+    );
+  });
+
+  it('returns year and quarter folder for a May date', () => {
+    expect(getOrganizeFolder('/photos', new Date('2026-05-24T12:00:00Z'))).toBe(
+      path.join('/photos', '2026', 'Q2'),
+    );
   });
 });
 
@@ -388,7 +497,7 @@ describe('showHelp', () => {
     );
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('filerenamer <input_folder> <suffix> [--execute] [--recursive]'),
+      expect.stringContaining('filerenamer <input_folder> <suffix> [--execute] [--recursive] [--organize]'),
     );
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining(

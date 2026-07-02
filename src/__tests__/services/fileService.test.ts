@@ -93,6 +93,14 @@ describe('FileService', () => {
     });
   });
 
+  describe('ensureDirectory', () => {
+    it('should create a directory recursively', () => {
+      fileService.ensureDirectory('/test/2026/Q1');
+
+      expect(fs.mkdirSync).toHaveBeenCalledWith('/test/2026/Q1', { recursive: true });
+    });
+  });
+
   describe('renameFile', () => {
     it('should rename a file', () => {
       (fs.existsSync as jest.Mock).mockReturnValue(false);
